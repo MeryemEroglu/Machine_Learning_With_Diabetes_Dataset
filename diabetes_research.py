@@ -30,6 +30,7 @@ from catboost import CatBoostClassifier
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 500)
 
+df = pd.read_csv("diabetes/diabetes.csv")
 
 ################################################
 # 1. Exploratory Data Analysis
@@ -347,3 +348,86 @@ df['NEW_BMI'] = pd.cut(x=df['BMI'], bins=[-1, 18.5, 24.9, 29.9, 100], labels=["u
 df['NEW_BLOOD_PRESSURE'] = pd.cut(x=df['BLOODPRESSURE'], bins=[-1, 79, 89, 123], labels=["normal", "hypertension_stages_1", "hypertension_stages_2"])
 
 check_df(df)
+cat_cols, num_cols, cat_but_car = grab_col_names(df, cat_th=5, car_th=20)
+
+for col in cat_cols:
+    cat_summary(df, col)
+
+for col in cat_cols:
+    target_summary_with_cat(df, "OUTCOME", col)
+
+cat_cols = [col for col in cat_cols if "OUTCOME" not in col]
+
+df = one_hot_encoder(df, cat_cols, drop_first=True)
+
+check_df(df)
+df.columns = [col.upper() for col in df.columns]
+
+cat_cols, num_cols, cat_but_car = grab_col_names(df, cat_th=5, car_th=20)
+cat_cols = [col for col in cat_cols if "OUTCOME" not in col]
+
+for col in num_cols:
+    print(col, check_outlier(df, col, 0.05, 0.95))
+
+replace_with_thresholds(df, "INSULIN")
+
+X_scaled = StandardScaler().fit_transform(df[num_cols])
+df[num_cols] = pd.DataFrame(X_scaled, columns=df[num_cols].columns)
+
+y = df["OUTCOME"]
+X = df.drop(["OUTCOME"], axis=1)
+check_df(X)
+
+def diabetes_data_prep(dataframe):
+    dataframe.columns = [col.upper() for col in dataframe.columns]
+
+    dataframe['NEW_GLUCOSE_CAT'] = pd.cut(x=dataframe['GLUCOSE'], bins=[-1, 139, 200], labels=["normal", "prediabetes"])
+
+    dataframe.loc[(dataframe['AGE'] < 35), "NEW_AGE_CAT"] = 'young'
+    dataframe.loc[(dataframe['AGE'] >= 35) & (dataframe['AGE'] <= 55), "NEW_AGE_CAT"] = 'middleage'
+    dataframe.loc[(dataframe['AGE'] > 55), "NEW_AGE_CAT"] = 'old'
+
+    dataframe['NEW_BMI_RANGE'] = pd.cut(x=dataframe['BMI'], bins=[-1, 18.5, 24.9, 29.9, 100],
+                                        labels=["underweight", "healthy", "overweight", "obese"])
+
+    dataframe['NEW_BLOOD_PRESSURE'] = pd.cut(x=dataframe['BLOODPRESSURE'], bins=[-1, 79, 89, 123],
+                                           labels=["normal", "hypertension_stages_1", "hypertension_stages_2"])
+    cat_cols, num_cols, cat_but_car = grab_col_names(dataframe, cat_th=5, car_th=20)
+    cat_cols = [col for col in cat_cols if "OUTCOME" not in col]
+    df = one_hot_encoder(dataframe, cat_cols, drop_first=True)
+    df.columns = [col.upper() for col in df.columns]
+    cat_cols, num_cols, cat_but_car = grab_col_names(df, cat_th=5, car_th=20)
+    cat_cols = [col for col in cat_cols if "OUTCOME" not in col]
+    replace_with_thresholds(df, "INSULIN")
+    X_scaled = StandardScaler().fit_transform(df[num_cols])
+    df[num_cols] = pd.DataFrame(X_scaled, columns=df[num_cols].columns)
+    y = df["OUTCOME"]
+    X = df.drop(["OUTCOME"], axis=1)
+    return X, y
+
+check_df(df)
+
+X, y = diabetes_data_prep(df)
+
+check_df(X)
+
+####################################
+# 3. Base Models
+####################################
+
+def base_modela(X, y, scoring="roc_auc"):
+    print("Base Models...")
+    classifiers = [('LR', LogisticRegression()),
+                   ('KNN', KNeighborsClassifier()),
+                   ('SVC', SVC()),
+                   ('CART', DecisionTreeClassifier()),
+                   ('RF', RandomForestClassifier()),
+                   ('Adaboost', AdaBoostClassifier()),
+                   ('GBM', GradientBoostingClassifier()),
+                   ('XGBoost', XGBClassifier(use_label_encoder=False, eval_metric='logloss')),
+                   ('LightGBM', LGBMClassifier()),
+                   ('CatBoost', CatBoostClassifier(verbose=False))]
+    for name, classifier in classifiers:
+        cv_results = cross_validate(classifier, X, y, cv=3, scoring=scoring)
+        print(f"{scoring}: {round(cv_results['test_score'].mean(), 4)} ({name}")
+base_models(X, y, scoring="accuracy")
